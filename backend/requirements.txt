@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+yfinance
+feedparser
+vaderSentiment
+pandas
+numpy
+python-dotenv
+pydantic
