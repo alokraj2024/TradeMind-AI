@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 import pandas as pd
 from engines.sentiment import analyze_sentiment
 from services.news_service import get_news
-from utils.stock_api import fetch_stock_data
+from services.market_data import get_market_data
 from services.indicators import add_indicators
 from services.strategy import generate_signal
 
@@ -48,22 +48,39 @@ def build_chart_data(data: pd.DataFrame) -> list[dict]:
 
 
 @router.get("/{symbol}")
-def analyze_stock(symbol: str):
+def analyze_stock(symbol: str, interval: str = "1d"):
     # 🔹 Step 1: Fetch Data
-    data = fetch_stock_data(symbol)
+    result = get_market_data(symbol, interval)
 
-    if data is None or data.empty:
+    if result.get("error"):
+        raise HTTPException(status_code=404, detail=result["error"])
+
+    source = result.get("source")
+    data_rows = result.get("data", [])
+
+    if not isinstance(data_rows, list) or not data_rows:
         raise HTTPException(
             status_code=404,
-            detail="Invalid stock symbol or no data available"
+            detail="Invalid symbol or no data available"
         )
 
+    data = pd.DataFrame(data_rows)
+    data["Date"] = pd.to_datetime(data["time"], utc=True)
+    data = data.rename(
+        columns={
+            "open": "Open",
+            "high": "High",
+            "low": "Low",
+            "close": "Close",
+            "volume": "Volume",
+        }
+    )
+    data = data[["Date", "Open", "High", "Low", "Close", "Volume"]]
+
     try:
-        # 🔹 Step 2: Add Indicators
         data = add_indicators(data)
         chart = build_chart_data(data)
 
-        # 🔹 Step 3: Generate Signal
         signal = generate_signal(data)
 
         headlines = get_news(symbol)
@@ -78,9 +95,10 @@ def analyze_stock(symbol: str):
         if not isinstance(signal, dict):
             raise ValueError("Signal generation failed")
 
-        # 🔹 Step 4: Return Clean Response
         return {
             "symbol": symbol.upper(),
+            "interval": interval,
+            "source": source,
             "price": chart[-1]["close"],
             "action": signal.get("action"),
             "score": signal.get("score"),
@@ -103,5 +121,5 @@ def analyze_stock(symbol: str):
         print("❌ ANALYSIS ERROR:", e)
         raise HTTPException(
             status_code=500,
-            detail="Error analyzing stock"
+            detail="Error analyzing symbol"
         )
