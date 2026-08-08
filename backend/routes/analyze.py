@@ -226,3 +226,54 @@ def analyze_stock(symbol: str, interval: str = "1d"):
     except Exception as e:
         print("❌ ANALYSIS ERROR:", e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+    # =========================================================
+# 🔐 ROLE-BASED RECORD FILTER (NEW FEATURE)
+# =========================================================
+
+@router.get("/records/{role}")
+def get_records_by_role(role: str):
+    import os
+
+    file_name = "signals_history.csv"
+
+    # ✅ Check if file exists
+    if not os.path.exists(file_name):
+        raise HTTPException(status_code=404, detail="No records found yet")
+
+    df = pd.read_csv(file_name)
+
+    if df.empty:
+        return {
+            "count": 0,
+            "data": []
+        }
+
+    role = role.lower()
+
+    # ✅ ROLE FILTER LOGIC (CUSTOMIZED FOR TRADEMIND AI)
+    if role == "user":
+        filtered = df[["Symbol", "Signal", "Confidence"]]
+
+    elif role == "analyst":
+        # More technical view
+        cols = ["Symbol", "Signal", "RSI", "SMA", "Confidence", "Sentiment"]
+        filtered = df[[c for c in cols if c in df.columns]]
+
+    elif role == "reviewer":
+        # Only risky / flagged trades
+        filtered = df[df["Flag"] != "Normal"]
+
+    elif role == "admin":
+        # Full access
+        filtered = df
+
+    else:
+        raise HTTPException(status_code=400, detail="Invalid role")
+
+    return {
+        "role": role,
+        "count": len(filtered),
+        "data": filtered.to_dict(orient="records")
+    }
