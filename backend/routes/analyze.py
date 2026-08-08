@@ -19,6 +19,59 @@ except Exception as exc:
     print(f"⚠️  Warning: ML model could not be loaded: {exc}")
 
 
+# 🧠 AI COPILOT FUNCTION
+def generate_signal_explanation(data: pd.DataFrame):
+    latest = data.iloc[-1]
+    prev = data.iloc[-2]
+
+    signals = []
+
+    # Trend (SMA)
+    if pd.notna(latest["SMA_20"]) and latest["Close"] > latest["SMA_20"]:
+        trend = "bullish"
+        signals.append("price is trading above the 20-day moving average")
+    else:
+        trend = "bearish"
+        signals.append("price is trading below the 20-day moving average")
+
+    # RSI Momentum
+    rsi = latest.get("RSI")
+    if pd.notna(rsi) and rsi > 60:
+        momentum = "strong"
+        signals.append("momentum is strong (RSI above 60)")
+    elif pd.notna(rsi) and rsi < 40:
+        momentum = "weak"
+        signals.append("momentum is weakening (RSI below 40)")
+    else:
+        momentum = "neutral"
+        signals.append("momentum is neutral")
+
+    # Volume
+    if latest["Volume"] > prev["Volume"]:
+        signals.append("volume is increasing, confirming the move")
+    else:
+        signals.append("volume is declining, indicating weak conviction")
+
+    # Final signal
+    if trend == "bullish" and momentum == "strong":
+        signal = "BUY"
+        confidence = 0.75
+    elif trend == "bearish" and momentum == "weak":
+        signal = "SELL"
+        confidence = 0.75
+    else:
+        signal = "HOLD"
+        confidence = 0.55
+
+    explanation = f"The model suggests a {signal} signal because " + ", ".join(signals) + "."
+
+    return {
+        "signal": signal,
+        "confidence": confidence,
+        "explanation": explanation
+    }
+
+
 def build_chart_data(data: pd.DataFrame) -> list[dict]:
     chart = []
 
@@ -75,7 +128,6 @@ def analyze_stock(symbol: str, interval: str = "1d"):
 
         raw_data = pd.DataFrame(data_rows)
 
-        # ✅ Ensure time column exists
         if "time" not in raw_data.columns:
             raw_data = raw_data.reset_index()
 
@@ -85,10 +137,8 @@ def analyze_stock(symbol: str, interval: str = "1d"):
         if "time" not in raw_data.columns:
             raise HTTPException(status_code=500, detail="Missing time column")
 
-        # ✅ Normalize datetime
         raw_data["time"] = pd.to_datetime(raw_data["time"], errors="coerce", utc=True)
 
-        # 🔹 Prepare OHLC format
         raw_data["Date"] = raw_data["time"]
 
         raw_data = raw_data.rename(
@@ -103,10 +153,19 @@ def analyze_stock(symbol: str, interval: str = "1d"):
 
         raw_data = raw_data[["Date", "Open", "High", "Low", "Close", "Volume"]]
 
-        # ✅🔥 CRITICAL FIX: ADD TIME COLUMN HERE
+        # 🔹 Add indicators
+        data = add_indicators(raw_data)
+
+        # 🧠 GENERATE AI EXPLANATION HERE
+        ai_output = generate_signal_explanation(data)
+
+        if MODEL is None:
+            raise RuntimeError("ML model is not available")
+
+        # 🔹 ML Features
         feature_data = raw_data.rename(
             columns={
-                "Date": "time",   # ⭐ THIS WAS MISSING
+                "Date": "time",
                 "Open": "open",
                 "High": "high",
                 "Low": "low",
@@ -115,19 +174,9 @@ def analyze_stock(symbol: str, interval: str = "1d"):
             }
         )
 
-        # ✅ Ensure correct structure
         feature_data = feature_data[["time", "open", "high", "low", "close", "volume"]]
 
-        # 🔹 Add indicators (for chart only)
-        data = add_indicators(raw_data)
-
-        if MODEL is None:
-            raise RuntimeError("ML model is not available")
-
-        # 🔹 Compute ML features
         feature_data = compute_features(feature_data)
-
-        # ✅ Clean data
         feature_data = feature_data.replace([float("inf"), float("-inf")], None)
         feature_data = feature_data.dropna()
 
@@ -136,7 +185,6 @@ def analyze_stock(symbol: str, interval: str = "1d"):
 
         latest_row = feature_data.tail(1)
 
-        # 🔹 Predict
         prediction_result = make_prediction(MODEL, FEATURE_COLUMNS, latest_row)
 
         chart = build_chart_data(data)
@@ -145,53 +193,33 @@ def analyze_stock(symbol: str, interval: str = "1d"):
         headlines = get_news(symbol)
         sentiment_score = analyze_sentiment(headlines)
 
-        if sentiment_score > 0.05:
-            sentiment = "Positive"
-        elif sentiment_score < -0.05:
-            sentiment = "Negative"
-        else:
-            sentiment = "Neutral"
-
-        # 🔹 Extract prediction
-        signal = prediction_result["signal"]
-        confidence_value = prediction_result["confidence"]
-        features_used = prediction_result.get("features_used", [])
-        error_info = prediction_result.get("error")
-
-        # 🔹 Derived metrics
-        trend = "BULLISH" if signal == "BUY" else "BEARISH" if signal == "SELL" else "NEUTRAL"
-        risk = "LOW" if signal == "BUY" else "HIGH" if signal == "SELL" else "MEDIUM"
-        score = round((confidence_value - 50) / 5, 2)
-
-        explanation = f"AI model predicts {signal} with {confidence_value}% confidence."
-        technical = "XGBoost model using price, trend, and volatility features."
+        sentiment = (
+            "Positive" if sentiment_score > 0.05
+            else "Negative" if sentiment_score < -0.05
+            else "Neutral"
+        )
 
         response = {
             "symbol": symbol.upper(),
             "interval": interval,
             "source": source,
             "price": chart[-1]["close"],
-            "signal": signal,
-            "confidence": confidence_value,
-            "features_used": features_used,
-            "action": signal,
-            "score": score,
-            "trend": trend,
-            "risk": risk,
-            "explanation": explanation,
-            "technical": technical,
+
+            # 🔥 ORIGINAL ML OUTPUT
+            "signal": prediction_result["signal"],
+            "confidence": prediction_result["confidence"],
+
+            # 🧠 NEW AI COPILOT
+            "ai": ai_output,
+
+            "trend": "BULLISH" if prediction_result["signal"] == "BUY" else "BEARISH",
+            "risk": "LOW" if prediction_result["signal"] == "BUY" else "HIGH",
+
             "sentiment": sentiment,
             "sentiment_score": sentiment_score,
-            "signals": {
-                "technical": technical,
-                "sentiment": sentiment,
-                "risk": risk,
-            },
+
             "chart": chart,
         }
-
-        if error_info:
-            response["error"] = error_info
 
         return response
 
