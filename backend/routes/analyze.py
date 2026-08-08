@@ -228,52 +228,83 @@ def analyze_stock(symbol: str, interval: str = "1d"):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-    # =========================================================
-# 🔐 ROLE-BASED RECORD FILTER (NEW FEATURE)
 # =========================================================
+# 🔐 ROLE-BASED FINANCIAL RECORDS API
+# =========================================================
+
+DEMO_FINANCIAL_RECORDS = [
+    {
+        "id": 1,
+        "title": "Quarterly Audit Grant",
+        "amount": 24500.0,
+        "role": "admin",
+        "status": "Approved",
+        "note": "Verified by lead auditor"
+    },
+    {
+        "id": 2,
+        "title": "Portfolio Dividend Payout",
+        "amount": 3200.5,
+        "role": "user",
+        "status": "Pending",
+        "note": "Awaiting settlement confirmation"
+    },
+    {
+        "id": 3,
+        "title": "Regulatory Compliance Fee",
+        "amount": 15400.0,
+        "role": "authority",
+        "status": "Approved",
+        "note": "Clearance certificate issued"
+    },
+    {
+        "id": 4,
+        "title": "High Volatility Stock Trade",
+        "amount": 8900.75,
+        "role": "reviewer",
+        "status": "Flagged",
+        "note": "Anomalous price spike flagged for inspection"
+    },
+    {
+        "id": 5,
+        "title": "Risk Review Clearance",
+        "amount": 6750.0,
+        "role": "reviewer",
+        "status": "Resolved",
+        "note": "Risk mitigation protocol accepted"
+    },
+    {
+        "id": 6,
+        "title": "Personal Portfolio Deposit",
+        "amount": 1200.0,
+        "role": "user",
+        "status": "Approved",
+        "note": "Standard user transfer"
+    },
+    {
+        "id": 7,
+        "title": "Institutional Transfer Fund",
+        "amount": 45000.0,
+        "role": "authority",
+        "status": "Flagged",
+        "note": "High value transfer requiring admin authorization"
+    }
+]
 
 @router.get("/records/{role}")
 def get_records_by_role(role: str):
-    import os
+    role_clean = role.strip().lower()
 
-    file_name = "signals_history.csv"
-
-    # ✅ Check if file exists
-    if not os.path.exists(file_name):
-        raise HTTPException(status_code=404, detail="No records found yet")
-
-    df = pd.read_csv(file_name)
-
-    if df.empty:
-        return {
-            "count": 0,
-            "data": []
-        }
-
-    role = role.lower()
-
-    # ✅ ROLE FILTER LOGIC (CUSTOMIZED FOR TRADEMIND AI)
-    if role == "user":
-        filtered = df[["Symbol", "Signal", "Confidence"]]
-
-    elif role == "analyst":
-        # More technical view
-        cols = ["Symbol", "Signal", "RSI", "SMA", "Confidence", "Sentiment"]
-        filtered = df[[c for c in cols if c in df.columns]]
-
-    elif role == "reviewer":
-        # Only risky / flagged trades
-        filtered = df[df["Flag"] != "Normal"]
-
-    elif role == "admin":
-        # Full access
-        filtered = df
-
+    if role_clean == "all":
+        filtered = DEMO_FINANCIAL_RECORDS
     else:
-        raise HTTPException(status_code=400, detail="Invalid role")
+        filtered = [
+            r for r in DEMO_FINANCIAL_RECORDS
+            if r.get("role", "").lower() == role_clean
+        ]
 
     return {
-        "role": role,
+        "role": role_clean,
         "count": len(filtered),
-        "data": filtered.to_dict(orient="records")
+        "data": filtered
     }
